@@ -8,14 +8,14 @@ end
 
 function doc:sandboxRunCode(code,env,src)
     pcall(function()
-        CompileString(code,src)
-        debug.setfenv(code,env)
-        code()
+        local fn = CompileString(code,src)
+        debug.setfenv(fn,env)
+        fn(env.Aletheia)
     end)
 end
 
 function doc:getLineFromString(str,line)
-    local c_line,capturing = 0,line == 0
+    local c_line,capturing = 1,line == 1
     local out = ""
     for char in str:gmatch("(.)") do
         if char == "\n" then
@@ -37,16 +37,67 @@ function doc:getLineFromString(str,line)
     return (str:match("[^\r\n]+$")) or ""
 end
 
+function doc:getFileData(func,loc)
+    local debugInfo = debug.getinfo(func)
+    if debugInfo.short_src then
+        local fileContents = file.Read(debugInfo.short_src,loc)
+
+        if fileContents then
+            local comment,idx = {},1
+            while true do
+                local lineContents = self:getLineFromString(fileContents,idx)
+                print(lineContents,lineContents:sub(1,3) ~= "-- ")
+                if lineContents:sub(1,3) ~= "-- " then break end
+                comment[idx] = lineContents
+                idx = idx + 1
+            end
+
+            local fileData = {
+                purpose = "",
+                author = "",
+                name = ""
+            }
+
+            if #comment > 0 then
+                for i=1,#comment do
+                    local commentStr = comment[#comment - i + 1]
+
+                    if commentStr:match("-- @author .+") then
+                        fileData.author = commentStr:match("-- @author (.+)")
+                    elseif commentStr:match("-- @purpose .+") then
+                        fileData.purpose = fileData.purpose..(commentStr:match("-- @purpose (.+)"))
+                    elseif commentStr:match("-- @name .+") then
+                        fileData.name = commentStr:match("-- @name (.+)")
+                    end
+                end
+
+                if fileData.purpose == "" then fileData.purpose = "Unknown." end
+                if fileData.author == "" then fileData.author = "Unknown." end
+                if fileData.name == "" then fileData.name = "Unknown." end
+
+                return fileData
+            end
+        end
+    end
+
+    return {
+        purpose = "Unknown.",
+        author = "Unknown.",
+        name = "Unknown."
+    }
+end
+
 function doc:getFunctionCommentData(func,loc)
     local debugInfo = debug.getinfo(func)
     if debugInfo.short_src and debugInfo.linedefined then
-        local fileContents = file.Read(func.short_src,loc)
+        local fileContents = file.Read(debugInfo.short_src,loc)
 
         if fileContents then
             local comment,idx = {},1
             while true do
                 local lineContents = self:getLineFromString(fileContents,debugInfo.linedefined-idx)
-                if lineContents:sub(1,4) ~= " -- " then break end
+                print(lineContents,lineContents:sub(1,3) ~= "-- ")
+                if lineContents:sub(1,3) ~= "-- " then break end
                 comment[idx] = lineContents
                 idx = idx + 1
             end
@@ -60,20 +111,22 @@ function doc:getFunctionCommentData(func,loc)
                 for i=1,#comment do
                     local commentStr = comment[#comment - i + 1]
 
-                    if commentStr:match("^ -- @param%d+%s*.+$") then
-                        local paramID,paramType,paramInfo = commentStr:match("^ -- @param(%d+)%s*(%S+)%s*(.*)$")
-                        commentData[tonumber(paramID)] = {
+                    if commentStr:match("^-- @param%d+%s*.+$") then
+                        local paramID,paramType,paramInfo = commentStr:match("^-- @param(%d+)%s*(%S+)%s*(.*)$")
+                        commentData.arguments[tonumber(paramID)] = {
                             type = paramType,
                             paramInfo = paramInfo
                         }
-                    elseif commentStr:match("^ -- @desc%s*.+$") then
-                        commentData.description = commentData.description..(commentStr:match("^ -- @desc%s*(.+)$"))
+                    elseif commentStr:match("^-- @desc%s*.+$") then
+                        commentData.description = commentData.description..(commentStr:match("^-- @desc%s*(.+)$"))
                     end
                 end
             end
 
             if commentData.description == "" then
                 commentData.description = "No description available."
+            else
+                commentData.description = commentData.description:sub(1,-2)
             end
 
             if #commentData.arguments == 0 then
@@ -112,12 +165,18 @@ function doc:DocumentFolder(path,loc)
     banana.forEachClass(function(class)
         for key,var in pairs(class) do
             if type(var) == "function" then
-                local cdata = self:getFunctionCommentData(var,loc)
-                table.insert(methods,{
-                    name = class:GetInternalClassName().."->"..key,
-                    description = cdata.description,
-                    arguments = cdata.arguments
-                })
+                if not methods[class:GetInternalClassName()] then
+                    methods[class:GetInternalClassName()] = self:getFileData(var,loc)
+                end
+
+                if not (banana.IgnoreKeys[key] or banana.Protected[key]) then
+                    local cdata = self:getFunctionCommentData(var,loc)
+                    table.insert(methods,{
+                        name = class:GetInternalClassName().."->"..key,
+                        description = cdata.description,
+                        arguments = cdata.arguments
+                    })
+                end
             end
         end
     end)
