@@ -10,7 +10,7 @@ function doc:sandboxRunCode(code,env,src)
     pcall(function()
         local fn = CompileString(code,src)
         debug.setfenv(fn,env)
-        fn()
+        fn(env.Aletheia)
     end)
 end
 
@@ -47,26 +47,35 @@ function doc:getFileData(func,loc)
             while true do
                 local lineContents = self:getLineFromString(fileContents,idx)
                 if lineContents:sub(1,3) ~= "-- " then break end
-                comment[idx] = lineContents
+                comment[#comment+1] = lineContents
                 idx = idx + 1
             end
 
             local fileData = {
                 purpose = "",
                 author = "",
-                name = ""
+                name = "",
+                state = 3
             }
 
             if #comment > 0 then
                 for i=1,#comment do
-                    local commentStr = comment[#comment - i + 1]
-
+                    local commentStr = comment[i]
                     if commentStr:match("-- @author .+") then
                         fileData.author = commentStr:match("-- @author (.+)")
                     elseif commentStr:match("-- @purpose .+") then
                         fileData.purpose = fileData.purpose..(commentStr:match("-- @purpose (.+)"))
                     elseif commentStr:match("-- @name .+") then
                         fileData.name = commentStr:match("-- @name (.+)")
+                    elseif commentStr:match("-- @state .+") then
+                        local state = commentStr:match("-- @state (.+)")
+                        if state == "SERVER" then
+                            fileData.state = 0
+                        elseif state == "CLIENT" then
+                            fileData.state = 1
+                        elseif state == "SHARED" then
+                            fileData.state = 2
+                        end
                     end
                 end
 
@@ -82,7 +91,8 @@ function doc:getFileData(func,loc)
     return {
         purpose = "Unknown.",
         author = "Unknown.",
-        name = "Unknown."
+        name = "Unknown.",
+        state = 3
     }
 end
 
@@ -165,12 +175,12 @@ function doc:DocumentFolder(path,loc)
     banana.forEachClass(function(class)
         for key,var in pairs(class) do
             if type(var) == "function" then
-                if not seenClasses[class:GetInternalClassName()] then
-                    table.insert(classes,self:getFileData(var,loc))
-                    seenClasses[class:GetInternalClassName()] = true
-                end
-
                 if not (banana.IgnoreKeys[key] or banana.Protected[key]) then
+                    if not seenClasses[class:GetInternalClassName()] then
+                        table.insert(classes,self:getFileData(var,loc))
+                        seenClasses[class:GetInternalClassName()] = true
+                    end
+
                     local cdata = self:getFunctionCommentData(var,loc)
                     table.insert(methods,{
                         name = class:GetInternalClassName().."->"..key,
@@ -182,7 +192,7 @@ function doc:DocumentFolder(path,loc)
         end
     end)
 
-    return util.TableToJSON(methods),util.TableToJSON(classes)
+    return methods,classes
 end
 
 return doc
