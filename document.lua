@@ -10,7 +10,7 @@ function doc:sandboxRunCode(code,env,src)
     pcall(function()
         local fn = CompileString(code,src)
         debug.setfenv(fn,env)
-        fn(env.Aletheia)
+        fn(env)
     end)
 end
 
@@ -112,7 +112,8 @@ function doc:getFunctionCommentData(func,loc)
 
             local commentData = {
                 description = "",
-                arguments = {}
+                arguments = {},
+                returns = {}
             }
 
             if #comment > 0 then
@@ -125,8 +126,14 @@ function doc:getFunctionCommentData(func,loc)
                             type = paramType,
                             paramInfo = paramInfo
                         }
+                    elseif commentStr:match("^-- @return%d+%s*.+$") then
+                        local paramID,paramType,paramInfo = commentStr:match("^-- @return(%d+)%s*(%S+)%s*(.*)$")
+                        commentData.returns[tonumber(paramID)] = {
+                            type = paramType,
+                            paramInfo = paramInfo
+                        }
                     elseif commentStr:match("^-- @desc%s*.+$") then
-                        commentData.description = commentData.description..(commentStr:match("^-- @desc%s*(.+)$"))
+                        commentData.description = commentData.description..(commentStr:match("^-- @desc%s*(.+)$")).."\n"
                     end
                 end
             end
@@ -141,12 +148,17 @@ function doc:getFunctionCommentData(func,loc)
                 commentData.arguments = false
             end
 
+            if #commentData.returns == 0 then
+                commentData.returns = false
+            end
+
             return commentData
         end
     end
     return {
         description = "No description available.",
-        arguments = false
+        arguments = false,
+        returns = false
     }
 end
 
@@ -177,7 +189,9 @@ function doc:DocumentFolder(path,loc)
             if type(var) == "function" then
                 if not (banana.IgnoreKeys[key] or banana.Protected[key]) then
                     if not seenClasses[class:GetInternalClassName()] then
-                        table.insert(classes,self:getFileData(var,loc))
+                        local fdata = self:getFileData(var,loc)
+                        fdata.class = class:GetInternalClassName()
+                        table.insert(classes,fdata)
                         seenClasses[class:GetInternalClassName()] = true
                     end
 
@@ -185,7 +199,9 @@ function doc:DocumentFolder(path,loc)
                     table.insert(methods,{
                         name = class:GetInternalClassName().."->"..key,
                         description = cdata.description,
-                        arguments = cdata.arguments
+                        arguments = cdata.arguments,
+                        returns = cdata.returns,
+                        class = class:GetInternalClassName()
                     })
                 end
             end
