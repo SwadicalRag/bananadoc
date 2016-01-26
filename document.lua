@@ -10,7 +10,7 @@ function doc:sandboxRunCode(code,env,src)
     pcall(function()
         local fn = CompileString(code,src)
         debug.setfenv(fn,env)
-        fn(env.Aletheia)
+        fn()
     end)
 end
 
@@ -46,7 +46,6 @@ function doc:getFileData(func,loc)
             local comment,idx = {},1
             while true do
                 local lineContents = self:getLineFromString(fileContents,idx)
-                print(lineContents,lineContents:sub(1,3) ~= "-- ")
                 if lineContents:sub(1,3) ~= "-- " then break end
                 comment[idx] = lineContents
                 idx = idx + 1
@@ -96,7 +95,6 @@ function doc:getFunctionCommentData(func,loc)
             local comment,idx = {},1
             while true do
                 local lineContents = self:getLineFromString(fileContents,debugInfo.linedefined-idx)
-                print(lineContents,lineContents:sub(1,3) ~= "-- ")
                 if lineContents:sub(1,3) ~= "-- " then break end
                 comment[idx] = lineContents
                 idx = idx + 1
@@ -162,11 +160,14 @@ function doc:DocumentFolder(path,loc)
     recurseFolder(path,loc)
 
     local methods = {}
+    local seenClasses = {}
+    local classes = {}
     banana.forEachClass(function(class)
         for key,var in pairs(class) do
             if type(var) == "function" then
-                if not methods[class:GetInternalClassName()] then
-                    methods[class:GetInternalClassName()] = self:getFileData(var,loc)
+                if not seenClasses[class:GetInternalClassName()] then
+                    table.insert(classes,self:getFileData(var,loc))
+                    seenClasses[class:GetInternalClassName()] = true
                 end
 
                 if not (banana.IgnoreKeys[key] or banana.Protected[key]) then
@@ -181,7 +182,7 @@ function doc:DocumentFolder(path,loc)
         end
     end)
 
-    return util.TableToJSON(methods)
+    return util.TableToJSON(methods),util.TableToJSON(classes)
 end
 
 return doc
